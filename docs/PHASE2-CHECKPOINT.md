@@ -9,6 +9,9 @@
 - Unit test auth, vault, HTTP auth/CSRF, dan kontrak respons provider; integration test PostgreSQL opt-in.
 - UI admin akun provider dengan CSRF, allowlist, masking credential, enable/disable, audit metadata aman, serta collector multi-account yang membaca vault.
 - Migration `000002` mengubah uniqueness menjadi `(provider_slug, account_key)` tanpa menulis ulang migration awal.
+- Migration `000003` memperketat idempotency key dan format source hash untuk write baru.
+- Retry collector dengan idempotency key sama kini no-op, termasuk bila payload retry berbeda.
+- Target integration test divalidasi sebagai database test loopback sebelum koneksi.
 
 ## Belum selesai
 
@@ -21,6 +24,10 @@
 - Unit test mencakup masking, CSRF mutasi, lookup credential, provider nonaktif, credential invalid, kegagalan repository, isolasi akun, serta respons provider sukses/gagal/malformed/auth.
 - Integration test opt-in mencakup idempotency, saldo terakhir saat failure, ciphertext round-trip, isolasi multi-account, dan rollback transaksi.
 - Docker daemon tidak tersedia pada checkpoint ini, sehingga migration test dan integration test nyata belum dijalankan.
+
+## Validasi Prompt 003
+
+Lihat `docs/PHASE2-VALIDATION.md`. Pada 23 Oktober 2026 Docker daemon dan target database test tidak tersedia. Unit test, vet, race test, dan diff-check lulus; migration 000001–000003 belum dijalankan dan integration test PostgreSQL berstatus SKIP.
 
 ## Review migrasi
 

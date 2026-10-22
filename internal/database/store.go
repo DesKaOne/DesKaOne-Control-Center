@@ -79,10 +79,16 @@ func (s *Store) RecordReading(ctx context.Context, r collectors.Reading, idempot
 	if started.IsZero() {
 		started = time.Now().UTC()
 	}
+	if idempotencyKey == "" {
+		return errors.New("idempotency key wajib diisi")
+	}
 	var runID int64
 	err = tx.QueryRow(ctx, `INSERT INTO collector_runs(provider_account_id,idempotency_key,started_at,finished_at,state,error_kind,error_message)
-		VALUES($1,$2,$3,$3,$4,$5,$6) ON CONFLICT(provider_account_id,idempotency_key) DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key RETURNING id`,
+		VALUES($1,$2,$3,$3,$4,$5,$6) ON CONFLICT(provider_account_id,idempotency_key) DO NOTHING RETURNING id`,
 		accountID, idempotencyKey, started, r.State, errorKind(r), nullable(r.Message)).Scan(&runID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -97,6 +103,9 @@ func (s *Store) RecordReading(ctx context.Context, r collectors.Reading, idempot
 }
 func errorKind(r collectors.Reading) any {
 	if r.State == "error" {
+		if r.ErrorKind != "" {
+			return r.ErrorKind
+		}
 		return "provider_error"
 	}
 	return nil

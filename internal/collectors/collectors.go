@@ -21,7 +21,14 @@ type Reading struct {
 	State     string    `json:"state"`
 	Message   string    `json:"message,omitempty"`
 	CheckedAt time.Time `json:"checked_at"`
+	ErrorKind string    `json:"-"`
 }
+
+type providerError struct{ kind, message string }
+
+func (e providerError) Error() string       { return e.message }
+func classified(kind, message string) error { return providerError{kind: kind, message: message} }
+
 type Collector interface {
 	ID() string
 	Enabled() bool
@@ -42,18 +49,21 @@ func (h httpClient) request(ctx context.Context, method, endpoint string, header
 	}
 	res, e := h.client.Do(req)
 	if e != nil {
-		return nil, e
+		if errors.Is(e, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, classified("timeout", "waktu tunggu penyedia habis")
+		}
+		return nil, classified("network", "penyedia tidak dapat dihubungi")
 	}
 	defer res.Body.Close()
 	if res.StatusCode == 401 || res.StatusCode == 403 {
-		return nil, errors.New("autentikasi ditolak atau token kedaluwarsa")
+		return nil, classified("auth", "autentikasi ditolak atau token kedaluwarsa")
 	}
 	if res.StatusCode < 200 || res.StatusCode > 299 {
-		return nil, fmt.Errorf("penyedia mengembalikan HTTP %d", res.StatusCode)
+		return nil, classified("upstream", fmt.Sprintf("penyedia mengembalikan HTTP %d", res.StatusCode))
 	}
 	var obj map[string]any
 	if e := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&obj); e != nil {
-		return nil, errors.New("format respons API tidak valid")
+		return nil, classified("malformed", "format respons API tidak valid")
 	}
 	return obj, nil
 }
@@ -90,12 +100,19 @@ func result(id string, raw any, err error) Reading {
 	if err != nil {
 		r.State = "error"
 		r.Message = err.Error()
+		var classifiedError providerError
+		if errors.As(err, &classifiedError) {
+			r.ErrorKind = classifiedError.kind
+		} else {
+			r.ErrorKind = "malformed"
+		}
 		return r
 	}
 	b, e := numberString(raw)
 	if e != nil {
 		r.State = "error"
 		r.Message = e.Error()
+		r.ErrorKind = "malformed"
 		return r
 	}
 	r.State = "ok"

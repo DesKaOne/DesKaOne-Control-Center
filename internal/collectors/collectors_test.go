@@ -2,6 +2,7 @@ package collectors
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,10 +12,10 @@ import (
 
 func TestRequestResponses(t *testing.T) {
 	tests := []struct {
-		name       string
-		status     int
-		body, want string
-	}{{"sukses", 200, `{"data":{"balance":12.5}}`, ""}, {"gagal", 500, `{"error":"x"}`, "HTTP 500"}, {"malformed", 200, `{`, "format respons"}, {"auth", 401, `{}`, "autentikasi ditolak"}}
+		name             string
+		status           int
+		body, want, kind string
+	}{{"sukses", 200, `{"data":{"balance":12.5}}`, "", ""}, {"gagal", 500, `{"error":"x"}`, "HTTP 500", "upstream"}, {"malformed", 200, `{`, "format respons", "malformed"}, {"auth", 401, `{}`, "autentikasi ditolak", "auth"}}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -30,7 +31,24 @@ func TestRequestResponses(t *testing.T) {
 			if tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
 				t.Fatalf("want %q got %v", tc.want, err)
 			}
+			if tc.kind != "" {
+				var pe providerError
+				if !errors.As(err, &pe) || pe.kind != tc.kind {
+					t.Fatalf("klasifikasi=%q, want %q", pe.kind, tc.kind)
+				}
+			}
 		})
+	}
+}
+
+func TestRequestTimeoutIsSanitized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { time.Sleep(50 * time.Millisecond) }))
+	defer srv.Close()
+	h := httpClient{client: &http.Client{Timeout: 5 * time.Millisecond}}
+	_, err := h.request(context.Background(), "GET", srv.URL+"/jangan-bocor", nil, nil)
+	var pe providerError
+	if !errors.As(err, &pe) || pe.kind != "timeout" || strings.Contains(err.Error(), "jangan-bocor") {
+		t.Fatalf("error timeout tidak aman: %v", err)
 	}
 }
 func TestRedirectNotFollowed(t *testing.T) {

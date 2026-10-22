@@ -12,6 +12,8 @@
 - UI provider hanya mengembalikan metadata akun dan status `Tersimpan`; ciphertext, nonce, dan plaintext tidak pernah dikirim kembali.
 - Provider dipilih dari allowlist dan URL API tidak dapat dimasukkan melalui form, sehingga UI administrasi tidak membuka jalur SSRF.
 - Setiap akun memakai UUID akun sebagai associated data AES-GCM untuk mencegah pertukaran ciphertext lintas akun.
+- Error collector disanitasi dan diklasifikasikan tanpa menyimpan URL request, header autentikasi, atau credential.
+- Integration test fail-closed: hanya menerima database bernama test pada host loopback.
 
 ## Operasional
 

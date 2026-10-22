@@ -4,6 +4,7 @@ sql:
     schema:
       - migrations/000001_phase2.up.sql
       - migrations/000002_provider_accounts_management.up.sql
+      - migrations/000003_phase2_constraints.up.sql
     queries: internal/database/queries.sql
     gen:
       go:

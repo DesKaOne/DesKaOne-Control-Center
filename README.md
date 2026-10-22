@@ -20,6 +20,7 @@ docker compose up -d postgres
 $env:DKO_DATABASE_URL = "postgres://deskaone:ganti-password@127.0.0.1:5439/deskaone_control?sslmode=disable"
 Get-Content -Raw migrations/000001_phase2.up.sql | psql -v ON_ERROR_STOP=1 $env:DKO_DATABASE_URL
 Get-Content -Raw migrations/000002_provider_accounts_management.up.sql | psql -v ON_ERROR_STOP=1 $env:DKO_DATABASE_URL
+Get-Content -Raw migrations/000003_phase2_constraints.up.sql | psql -v ON_ERROR_STOP=1 $env:DKO_DATABASE_URL
 
 go run ./cmd/control-center
 ```
@@ -34,7 +35,7 @@ go test ./...
 go vet ./...
 go test -race ./...
 
-# Integration test eksplisit pada database test yang skemanya sudah dimigrasikan.
+# Integration test eksplisit. Kode menolak nama DB tanpa "test" dan host non-loopback.
 $env:DKO_TEST_DATABASE_URL = "postgres://deskaone:test@127.0.0.1:5439/deskaone_control_test?sslmode=disable"
 go test -tags=integration ./internal/database -count=1
 ```

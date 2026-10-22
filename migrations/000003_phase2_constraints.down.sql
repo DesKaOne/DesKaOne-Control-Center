@@ -1,0 +1,2 @@
+ALTER TABLE balance_snapshots DROP CONSTRAINT IF EXISTS balance_snapshots_source_hash_hex;
+ALTER TABLE collector_runs DROP CONSTRAINT IF EXISTS collector_runs_idempotency_key_nonempty;

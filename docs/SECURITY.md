@@ -9,6 +9,9 @@
 - Login dibatasi lima percobaan per alamat remote dalam 15 menit. Header proxy tidak dipercaya secara default.
 - Credential provider dienkripsi AES-256-GCM dengan nonce acak dan associated data. Master key base64 32 byte hanya berasal dari environment.
 - Log tidak boleh memuat token, cookie, password, API key, atau raw Authorization header.
+- UI provider hanya mengembalikan metadata akun dan status `Tersimpan`; ciphertext, nonce, dan plaintext tidak pernah dikirim kembali.
+- Provider dipilih dari allowlist dan URL API tidak dapat dimasukkan melalui form, sehingga UI administrasi tidak membuka jalur SSRF.
+- Setiap akun memakai UUID akun sebagai associated data AES-GCM untuk mencegah pertukaran ciphertext lintas akun.
 
 ## Operasional
 
@@ -16,4 +19,6 @@ Produksi bersifat fail-closed: `DKO_DATABASE_URL`, master key valid, dan secure 
 
 Migrasi tidak pernah dijalankan otomatis oleh aplikasi. Review SQL, backup database, lalu jalankan secara eksplisit oleh operator. File down migration bersifat destruktif dan tidak boleh dijalankan di produksi tanpa prosedur pemulihan yang disetujui.
 
-Credential provider lama dari `.env` masih dibaca langsung oleh adapter untuk kompatibilitas MVP. Pemindahan credential tersebut ke tabel `credentials` memerlukan UI/command administrasi terpisah sebelum `.env` provider dapat dihentikan.
+Credential provider lama dari `.env` hanya menjadi fallback eksplisit bagi akun `default` tanpa ciphertext. Aplikasi tidak pernah menyalin plaintext itu otomatis. Simpan credential baru melalui `/admin/providers`, verifikasi collector, lalu hapus variabel legacy secara manual.
+
+Audit lokal mencatat actor, aksi, dan ID akun tanpa metadata rahasia. Audit sink immutable, MFA, RBAC multi-peran, dan rotasi master key otomatis tetap merupakan pekerjaan lanjutan.

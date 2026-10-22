@@ -1,7 +1,7 @@
 -- name: EnsureProviderAccount :one
-INSERT INTO provider_accounts (provider_slug, display_name)
-VALUES ($1, $2)
-ON CONFLICT (provider_slug) DO UPDATE SET display_name = EXCLUDED.display_name, updated_at = now()
+INSERT INTO provider_accounts (provider_slug, account_key, display_name)
+VALUES ($1, 'default', $2)
+ON CONFLICT (provider_slug, account_key) DO UPDATE SET display_name = EXCLUDED.display_name, updated_at = now()
 RETURNING id;
 
 -- name: LatestBalances :many

@@ -103,13 +103,18 @@ func result(id string, raw any, err error) Reading {
 	return r
 }
 
-type ProxyRack struct{ httpClient }
+type ProxyRack struct {
+	httpClient
+	id, apiKey string
+}
 
-func NewProxyRack() ProxyRack   { return ProxyRack{newClient()} }
-func (ProxyRack) ID() string    { return "proxyrack" }
-func (ProxyRack) Enabled() bool { return os.Getenv("DKO_PROXYRACK_API_KEY") != "" }
+func NewProxyRack() ProxyRack {
+	return ProxyRack{httpClient: newClient(), id: "proxyrack", apiKey: os.Getenv("DKO_PROXYRACK_API_KEY")}
+}
+func (p ProxyRack) ID() string    { return p.id }
+func (p ProxyRack) Enabled() bool { return p.apiKey != "" }
 func (p ProxyRack) Collect(ctx context.Context) Reading {
-	obj, e := p.request(ctx, "POST", "https://peer.proxyrack.com/api/balance", map[string]string{"Api-Key": os.Getenv("DKO_PROXYRACK_API_KEY"), "Accept": "application/json"}, nil)
+	obj, e := p.request(ctx, "POST", "https://peer.proxyrack.com/api/balance", map[string]string{"Api-Key": p.apiKey, "Accept": "application/json"}, nil)
 	if e != nil {
 		return result(p.ID(), nil, e)
 	}
@@ -120,13 +125,18 @@ func (p ProxyRack) Collect(ctx context.Context) Reading {
 	return result(p.ID(), v, nil)
 }
 
-type TraffMonetizer struct{ httpClient }
+type TraffMonetizer struct {
+	httpClient
+	id, token string
+}
 
-func NewTraffMonetizer() TraffMonetizer { return TraffMonetizer{newClient()} }
-func (TraffMonetizer) ID() string       { return "traffmonetizer" }
-func (TraffMonetizer) Enabled() bool    { return os.Getenv("DKO_TRAFFMONETIZER_TOKEN") != "" }
+func NewTraffMonetizer() TraffMonetizer {
+	return TraffMonetizer{httpClient: newClient(), id: "traffmonetizer", token: os.Getenv("DKO_TRAFFMONETIZER_TOKEN")}
+}
+func (t TraffMonetizer) ID() string    { return t.id }
+func (t TraffMonetizer) Enabled() bool { return t.token != "" }
 func (t TraffMonetizer) Collect(ctx context.Context) Reading {
-	obj, e := t.request(ctx, "GET", "https://data.traffmonetizer.com/api/app_user/get_balance", map[string]string{"Authorization": "Bearer " + os.Getenv("DKO_TRAFFMONETIZER_TOKEN"), "Origin": "https://app.traffmonetizer.com", "Referer": "https://app.traffmonetizer.com/"}, nil)
+	obj, e := t.request(ctx, "GET", "https://data.traffmonetizer.com/api/app_user/get_balance", map[string]string{"Authorization": "Bearer " + t.token, "Origin": "https://app.traffmonetizer.com", "Referer": "https://app.traffmonetizer.com/"}, nil)
 	if e != nil {
 		return result(t.ID(), nil, e)
 	}
@@ -137,19 +147,24 @@ func (t TraffMonetizer) Collect(ctx context.Context) Reading {
 	return result(t.ID(), v, nil)
 }
 
-type Repocket struct{ httpClient }
+type Repocket struct {
+	httpClient
+	id, email, password string
+}
 
-func NewRepocket() Repocket { return Repocket{newClient()} }
-func (Repocket) ID() string { return "repocket" }
-func (Repocket) Enabled() bool {
-	return os.Getenv("DKO_REPOCKET_EMAIL") != "" && os.Getenv("DKO_REPOCKET_PASSWORD") != ""
+func NewRepocket() Repocket {
+	return Repocket{httpClient: newClient(), id: "repocket", email: os.Getenv("DKO_REPOCKET_EMAIL"), password: os.Getenv("DKO_REPOCKET_PASSWORD")}
+}
+func (r Repocket) ID() string { return r.id }
+func (r Repocket) Enabled() bool {
+	return r.email != "" && r.password != ""
 }
 
 // Authentication mechanism follows CashPilot's observed Firebase password flow; endpoint may change.
 func (r Repocket) Collect(ctx context.Context) Reading {
 	key := "AIzaSyBJf6hyw47O-5TrAwQszkwvDEh-Ri6q6SU" // public client identifier from reference; not an account secret
 	authURL := "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=" + url.QueryEscape(key)
-	payload := map[string]any{"email": os.Getenv("DKO_REPOCKET_EMAIL"), "password": os.Getenv("DKO_REPOCKET_PASSWORD"), "returnSecureToken": true}
+	payload := map[string]any{"email": r.email, "password": r.password, "returnSecureToken": true}
 	b, _ := json.Marshal(payload)
 	obj, e := r.request(ctx, "POST", authURL, map[string]string{"Content-Type": "application/json"}, strings.NewReader(string(b)))
 	if e != nil {
@@ -175,3 +190,39 @@ func (r Repocket) Collect(ctx context.Context) Reading {
 	return result(r.ID(), strconv.FormatFloat(f/100, 'f', 4, 64), nil)
 }
 func Default() []Collector { return []Collector{NewProxyRack(), NewTraffMonetizer(), NewRepocket()} }
+
+func FromCredential(accountID, provider string, values map[string]string) (Collector, error) {
+	switch provider {
+	case "proxyrack":
+		if strings.TrimSpace(values["api_key"]) == "" {
+			return nil, errors.New("API key wajib diisi")
+		}
+		return ProxyRack{httpClient: newClient(), id: accountID, apiKey: values["api_key"]}, nil
+	case "traffmonetizer":
+		if strings.TrimSpace(values["token"]) == "" {
+			return nil, errors.New("token wajib diisi")
+		}
+		return TraffMonetizer{httpClient: newClient(), id: accountID, token: values["token"]}, nil
+	case "repocket":
+		if strings.TrimSpace(values["email"]) == "" || values["password"] == "" {
+			return nil, errors.New("email dan password wajib diisi")
+		}
+		return Repocket{httpClient: newClient(), id: accountID, email: values["email"], password: values["password"]}, nil
+	default:
+		return nil, errors.New("provider tidak didukung")
+	}
+}
+
+func FromLegacy(accountID, provider string) (Collector, error) {
+	values := map[string]string{}
+	switch provider {
+	case "proxyrack":
+		values["api_key"] = os.Getenv("DKO_PROXYRACK_API_KEY")
+	case "traffmonetizer":
+		values["token"] = os.Getenv("DKO_TRAFFMONETIZER_TOKEN")
+	case "repocket":
+		values["email"] = os.Getenv("DKO_REPOCKET_EMAIL")
+		values["password"] = os.Getenv("DKO_REPOCKET_PASSWORD")
+	}
+	return FromCredential(accountID, provider, values)
+}

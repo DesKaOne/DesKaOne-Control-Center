@@ -45,3 +45,22 @@ func TestRedirectNotFollowed(t *testing.T) {
 		t.Fatal("redirect tidak boleh diikuti")
 	}
 }
+
+func TestCredentialFactory(t *testing.T) {
+	tests := []struct {
+		name, provider string
+		values         map[string]string
+		ok             bool
+	}{{"proxyrack", "proxyrack", map[string]string{"api_key": "x"}, true}, {"repocket-invalid", "repocket", map[string]string{"email": "a@b"}, false}, {"provider-invalid", "asing", map[string]string{"token": "x"}, false}}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := FromCredential("account-1", tc.provider, tc.values)
+			if tc.ok && (err != nil || !c.Enabled() || c.ID() != "account-1") {
+				t.Fatalf("factory gagal: %v", err)
+			}
+			if !tc.ok && err == nil {
+				t.Fatal("credential invalid diterima")
+			}
+		})
+	}
+}

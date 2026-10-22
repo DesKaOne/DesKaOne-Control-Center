@@ -18,7 +18,8 @@ docker compose up -d postgres
 
 # Review sebelum menjalankan. Jangan jalankan otomatis pada database produksi.
 $env:DKO_DATABASE_URL = "postgres://deskaone:ganti-password@127.0.0.1:5439/deskaone_control?sslmode=disable"
-Get-Content -Raw migrations/000001_phase2.up.sql | psql $env:DKO_DATABASE_URL
+Get-Content -Raw migrations/000001_phase2.up.sql | psql -v ON_ERROR_STOP=1 $env:DKO_DATABASE_URL
+Get-Content -Raw migrations/000002_provider_accounts_management.up.sql | psql -v ON_ERROR_STOP=1 $env:DKO_DATABASE_URL
 
 go run ./cmd/control-center
 ```
@@ -53,4 +54,8 @@ Lihat [security](docs/SECURITY.md), [arsitektur](docs/ARCHITECTURE.md), dan [che
 
 ## Provider
 
-Adapter read-only tersedia untuk ProxyRack, TraffMonetizer, dan Repocket. Credential provider masih berasal dari environment demi kompatibilitas MVP; UI/command vault merupakan pekerjaan lanjutan. Endpoint tidak resmi dapat berubah dan harus ditinjau terhadap terms provider sebelum produksi.
+Adapter read-only tersedia untuk ProxyRack, TraffMonetizer, dan Repocket. Admin dapat mengelola beberapa akun melalui `/admin/providers`; secret baru langsung dienkripsi dan form hanya menampilkan status `Tersimpan`.
+
+Variabel credential provider lama tetap didukung hanya untuk akun `default` yang belum memiliki ciphertext. Nilainya tidak pernah otomatis disalin ke PostgreSQL. Setelah credential disimpan lewat UI dan collector terverifikasi, hapus variabel legacy dari `.env`.
+
+Endpoint provider berasal dari allowlist di kode, bukan input form. Endpoint tidak resmi dapat berubah dan harus ditinjau terhadap terms provider sebelum produksi.

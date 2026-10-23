@@ -81,7 +81,7 @@ func (s *Server) reloadCollectors(ctx context.Context) error {
 			if makeErr == nil {
 				list = append(list, collector)
 			}
-		} else {
+		} else if account.AccountKey == "default" {
 			collector, makeErr := collectors.FromLegacy(account.ID, account.ProviderSlug)
 			if makeErr == nil {
 				list = append(list, collector)
@@ -132,6 +132,7 @@ func (s *Server) Rows(ctx context.Context) ([]collectors.Reading, error) {
 				r.State = "credential belum tersimpan"
 			}
 		}
+		r.AccountID = account.ID
 		r.Provider = account.DisplayName
 		rows = append(rows, r)
 	}

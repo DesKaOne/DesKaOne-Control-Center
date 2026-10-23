@@ -71,8 +71,15 @@ func (s *Store) RecordReading(ctx context.Context, r collectors.Reading, idempot
 		return err
 	}
 	defer tx.Rollback(ctx)
+	// Explicit account IDs never fall back to a provider slug.
 	var accountID string
-	if err := tx.QueryRow(ctx, `SELECT id::text FROM provider_accounts WHERE id::text=$1 OR (provider_slug=$1 AND account_key='default') LIMIT 1`, r.Provider).Scan(&accountID); err != nil {
+	query := `SELECT id::text FROM provider_accounts WHERE id::text=$1`
+	identity := r.AccountID
+	if identity == "" {
+		identity = r.Provider
+		query = `SELECT id::text FROM provider_accounts WHERE provider_slug=$1 AND account_key='default'`
+	}
+	if err := tx.QueryRow(ctx, query, identity).Scan(&accountID); err != nil {
 		return err
 	}
 	started := r.CheckedAt
@@ -93,7 +100,7 @@ func (s *Store) RecordReading(ctx context.Context, r collectors.Reading, idempot
 		return err
 	}
 	if r.State == "ok" {
-		source := sha256.Sum256([]byte(r.Provider + "\x00" + r.Balance + "\x00" + r.Currency + "\x00" + started.UTC().Format(time.RFC3339Nano)))
+		source := sha256.Sum256([]byte(accountID + "\x00" + r.Balance + "\x00" + r.Currency + "\x00" + started.UTC().Format(time.RFC3339Nano)))
 		if _, err = tx.Exec(ctx, `INSERT INTO balance_snapshots(provider_account_id,amount,currency,collected_at,source_hash)
 			VALUES($1,$2::numeric,$3,$4,$5) ON CONFLICT(provider_account_id,source_hash) DO NOTHING`, accountID, r.Balance, r.Currency, started, hex.EncodeToString(source[:])); err != nil {
 			return err
@@ -117,14 +124,15 @@ func nullable(s string) any {
 	return s
 }
 
+// LatestReadings returns one entry per account UUID, retaining the last successful balance.
 func (s *Store) LatestReadings(ctx context.Context) (map[string]collectors.Reading, error) {
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
-	rows, err := s.pool.Query(ctx, `SELECT pa.id::text, COALESCE(bs.amount::text,''), COALESCE(bs.currency,''),
-		COALESCE(bs.collected_at,'0001-01-01'::timestamptz), COALESCE(cr.state,'belum diperiksa'), COALESCE(cr.error_message,'')
+	rows, err := s.pool.Query(ctx, `SELECT pa.id::text, pa.provider_slug, COALESCE(bs.amount::text,''), COALESCE(bs.currency,''),
+		COALESCE(cr.started_at,bs.collected_at,'0001-01-01'::timestamptz), COALESCE(cr.state,'belum diperiksa'), COALESCE(cr.error_message,'')
 		FROM provider_accounts pa
 		LEFT JOIN LATERAL (SELECT amount,currency,collected_at FROM balance_snapshots WHERE provider_account_id=pa.id ORDER BY collected_at DESC,id DESC LIMIT 1) bs ON true
-		LEFT JOIN LATERAL (SELECT state,error_message FROM collector_runs WHERE provider_account_id=pa.id ORDER BY started_at DESC,id DESC LIMIT 1) cr ON true`)
+		LEFT JOIN LATERAL (SELECT state,error_message,started_at FROM collector_runs WHERE provider_account_id=pa.id ORDER BY started_at DESC,id DESC LIMIT 1) cr ON true`)
 	if err != nil {
 		return nil, err
 	}
@@ -132,10 +140,10 @@ func (s *Store) LatestReadings(ctx context.Context) (map[string]collectors.Readi
 	out := map[string]collectors.Reading{}
 	for rows.Next() {
 		var r collectors.Reading
-		if err := rows.Scan(&r.Provider, &r.Balance, &r.Currency, &r.CheckedAt, &r.State, &r.Message); err != nil {
+		if err := rows.Scan(&r.AccountID, &r.Provider, &r.Balance, &r.Currency, &r.CheckedAt, &r.State, &r.Message); err != nil {
 			return nil, err
 		}
-		out[r.Provider] = r
+		out[r.AccountID] = r
 	}
 	return out, rows.Err()
 }

@@ -82,3 +82,18 @@ func TestCredentialFactory(t *testing.T) {
 		})
 	}
 }
+
+func TestReadingIdentityOnSuccessAndFailure(t *testing.T) {
+	for _, id := range []string{"proxyrack", "uuid-a", "uuid-b"} {
+		for _, err := range []error{nil, classified("auth", "autentikasi ditolak")} {
+			r := result(id, "proxyrack", "1.00", err)
+			want := id
+			if id == "proxyrack" {
+				want = ""
+			}
+			if r.AccountID != want || r.Provider != "proxyrack" {
+				t.Fatalf("identitas salah: %+v", r)
+			}
+		}
+	}
+}

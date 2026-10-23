@@ -28,7 +28,11 @@ func (f *fakeRepo) RecordReading(_ context.Context, r collectors.Reading, _ stri
 		f.readings = map[string]collectors.Reading{}
 	}
 	if r.State == "ok" {
-		f.readings[r.Provider] = r
+		identity := r.AccountID
+		if identity == "" {
+			identity = r.Provider
+		}
+		f.readings[identity] = r
 	}
 	return nil
 }
@@ -199,5 +203,38 @@ func TestCollectorLookupSkipsDisabledInvalidAndDatabaseFailure(t *testing.T) {
 				t.Fatal("collector tidak valid/disabled harus dilewati")
 			}
 		})
+	}
+}
+
+func TestRowsKeepSameProviderAccountsIsolated(t *testing.T) {
+	repo := &fakeRepo{accounts: []providers.Account{{ID: "uuid-a", ProviderSlug: "proxyrack", AccountKey: "a", DisplayName: "Proxy A", Enabled: true, CredentialStored: true}, {ID: "uuid-b", ProviderSlug: "proxyrack", AccountKey: "b", DisplayName: "Proxy B", Enabled: true, CredentialStored: true}}, readings: map[string]collectors.Reading{"uuid-a": {AccountID: "uuid-a", Balance: "1.00", Currency: "USD", State: "ok"}, "uuid-b": {AccountID: "uuid-b", Balance: "2.00", Currency: "USD", State: "error", Message: "gagal"}}}
+	rows, err := NewManaged(repo, false, &fakeCredentials{}).Rows(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].AccountID == rows[1].AccountID || rows[0].Provider != "Proxy A" || rows[0].Balance != "1.00" || rows[1].Provider != "Proxy B" || rows[1].Balance != "2.00" || rows[1].State != "error" {
+		t.Fatalf("mapping multi-account salah: %+v", rows)
+	}
+}
+
+func TestLegacyCredentialsOnlyApplyToDefaultAccount(t *testing.T) {
+	t.Setenv("DKO_PROXYRACK_API_KEY", "fixture")
+	repo := &fakeRepo{accounts: []providers.Account{
+		{ID: "uuid-default", ProviderSlug: "proxyrack", AccountKey: "default", Enabled: true},
+		{ID: "uuid-other", ProviderSlug: "proxyrack", AccountKey: "other", Enabled: true},
+	}}
+	s := NewManaged(repo, false, &fakeCredentials{})
+	if err := s.reloadCollectors(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.list) != 1 || s.list[0].ID() != "uuid-default" {
+		t.Fatal("fallback legacy harus terikat UUID akun default")
+	}
+	rows, err := s.Rows(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].AccountID != "uuid-default" || rows[1].AccountID != "uuid-other" {
+		t.Fatal("akun tanpa reading harus tetap memiliki identitas")
 	}
 }

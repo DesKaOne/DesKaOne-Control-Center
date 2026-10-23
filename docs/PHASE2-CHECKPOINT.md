@@ -40,3 +40,13 @@ Lihat `docs/PHASE2-VALIDATION.md`. Pada 23 Oktober 2026 Docker daemon dan target
 ## Prinsip data
 
 `balance_snapshots` hanya menyimpan posisi saldo pada waktu tertentu. `verified_earnings` memerlukan bukti dan verifikasi tersendiri. Keduanya tidak dijumlahkan atau diturunkan satu dari yang lain.
+
+## Validasi Prompt 004
+
+- Root cause adalah lookup slug terhadap map keyed UUID, bukan bukti kehilangan snapshot SQL. `Reading.AccountID` sekarang eksplisit; metadata provider terpisah dan dashboard tetap lookup UUID.
+- Perbaikan awal pada working tree dipertahankan. Fetch sukses dan branch awal sama dengan remote; pull tidak diperlukan. Tidak ada push/merge.
+- Collector managed menggunakan UUID untuk vault maupun legacy default; fallback environment hanya untuk account key `default`. Akun provider sama tidak digabungkan.
+- Regression ditambah untuk multi-account, key existence, latest error vs successful balance, serta identitas hasil collector. Waktu pemeriksaan mengikuti run terbaru.
+- Validasi terbaru: test/vet/race seluruh repo FAIL pada setup dependency privat GitHub (autentikasi tidak tersedia). Collector/config/credentials/vault unit tests PASS; PostgreSQL saldo/concurrent idempotency/credential belum dieksekusi. Integration command gagal setup dan target DB tidak tersedia (SKIP eksekusi DB). Detail hasil aktual di `PHASE2-VALIDATION.md`.
+- Migration 000001–000003 dilaporkan operator sudah sukses pada PostgreSQL 17.11; tidak dijalankan ulang oleh Codex. Tidak ada migration baru, deploy, DROP/TRUNCATE, atau penghapusan volume.
+- Phase 2 belum PASS penuh; rerun PowerShell di dokumen validasi masih diperlukan.

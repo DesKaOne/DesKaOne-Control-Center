@@ -38,6 +38,13 @@ func TestPostgresRecordIsIdempotentAndRetainsBalanceOnFailure(t *testing.T) {
 	if err = s.EnsureProviders(context.Background(), []collectors.Collector{stubCollector{id}}); err != nil {
 		t.Fatal(err)
 	}
+	var accountID string
+	if err = s.pool.QueryRow(context.Background(), `SELECT id::text FROM provider_accounts WHERE provider_slug=$1 AND account_key='default'`, id).Scan(&accountID); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.RecordReading(context.Background(), collectors.Reading{AccountID: id, Provider: id, State: "error"}, "invalid-account-id"); err == nil {
+		t.Fatal("AccountID eksplisit berupa slug tidak boleh fallback ke akun default")
+	}
 	now := time.Now().UTC()
 	ok := collectors.Reading{Provider: id, Balance: "12.50", Currency: "USD", State: "ok", CheckedAt: now}
 	if err = s.RecordReading(context.Background(), ok, "same-key"); err != nil {
@@ -46,7 +53,7 @@ func TestPostgresRecordIsIdempotentAndRetainsBalanceOnFailure(t *testing.T) {
 	if err = s.RecordReading(context.Background(), ok, "same-key"); err != nil {
 		t.Fatal(err)
 	}
-	fail := collectors.Reading{Provider: id, State: "error", Message: "fixture gagal", CheckedAt: now.Add(time.Second)}
+	fail := collectors.Reading{AccountID: accountID, State: "error", Message: "fixture gagal", CheckedAt: now.Add(time.Second)}
 	if err = s.RecordReading(context.Background(), fail, "failure-key"); err != nil {
 		t.Fatal(err)
 	}
@@ -54,12 +61,12 @@ func TestPostgresRecordIsIdempotentAndRetainsBalanceOnFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[id].Balance != "12.500000000000" || got[id].State != "error" {
-		t.Fatalf("saldo gagal dipertahankan: %+v", got[id])
+	reading, found := got[accountID]
+	if !found {
+		t.Fatalf("reading UUID account %s tidak ditemukan", accountID)
 	}
-	var accountID string
-	if err = s.pool.QueryRow(context.Background(), `SELECT id::text FROM provider_accounts WHERE provider_slug=$1 AND account_key='default'`, id).Scan(&accountID); err != nil {
-		t.Fatal(err)
+	if reading.Balance != "12.500000000000" || reading.State != "error" || reading.Provider != id || reading.Message != "fixture gagal" || !reading.CheckedAt.Equal(fail.CheckedAt.Truncate(time.Microsecond)) {
+		t.Fatalf("saldo/status salah: %+v", reading)
 	}
 	var wg sync.WaitGroup
 	errs := make(chan error, 8)
@@ -67,7 +74,7 @@ func TestPostgresRecordIsIdempotentAndRetainsBalanceOnFailure(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			reading := collectors.Reading{Provider: id, Balance: fmt.Sprintf("%d.00", n+20), Currency: "USD", State: "ok", CheckedAt: now.Add(time.Duration(n+2) * time.Second)}
+			reading := collectors.Reading{AccountID: accountID, Balance: fmt.Sprintf("%d.00", n+20), Currency: "USD", State: "ok", CheckedAt: now.Add(time.Duration(n+2) * time.Second)}
 			errs <- s.RecordReading(context.Background(), reading, "concurrent-key")
 		}(i)
 	}
@@ -161,7 +168,23 @@ func TestPostgresCredentialEncryptionIsolationAndRollback(t *testing.T) {
 			t.Fatal("akun gagal dinonaktifkan")
 		}
 	}
-	bad := collectors.Reading{Provider: a, Balance: "bukan-angka", Currency: "USD", State: "ok", CheckedAt: time.Now().UTC()}
+	now := time.Now().UTC()
+	if err = s.RecordReading(ctx, collectors.Reading{AccountID: a, Balance: "1.00", Currency: "USD", State: "ok", CheckedAt: now}, "account-a-balance"); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.RecordReading(ctx, collectors.Reading{AccountID: b, Balance: "2.00", Currency: "USD", State: "ok", CheckedAt: now}, "account-a-balance"); err != nil {
+		t.Fatal(err)
+	}
+	readings, err := s.LatestReadings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ra, okA := readings[a]
+	rb, okB := readings[b]
+	if !okA || !okB || ra.Balance != "1.000000000000" || rb.Balance != "2.000000000000" {
+		t.Fatalf("reading multi-account tercampur: A=%+v/%v B=%+v/%v", ra, okA, rb, okB)
+	}
+	bad := collectors.Reading{AccountID: a, Balance: "bukan-angka", Currency: "USD", State: "ok", CheckedAt: time.Now().UTC()}
 	if err = s.RecordReading(ctx, bad, "rollback-key"); err == nil {
 		t.Fatal("nilai malformed harus gagal")
 	}

@@ -14,7 +14,9 @@ import (
 	"time"
 )
 
+// Reading uses AccountID as identity; Provider is metadata (display name in dashboard rows).
 type Reading struct {
+	AccountID string    `json:"account_id,omitempty"`
 	Provider  string    `json:"provider"`
 	Balance   string    `json:"balance,omitempty"`
 	Currency  string    `json:"currency,omitempty"`
@@ -95,8 +97,12 @@ func numberString(v any) (string, error) {
 		return "", errors.New("nilai saldo tidak tersedia")
 	}
 }
-func result(id string, raw any, err error) Reading {
-	r := Reading{Provider: id, Currency: "USD", CheckedAt: time.Now().UTC()}
+func result(id, provider string, raw any, err error) Reading {
+	r := Reading{AccountID: id, Provider: provider, Currency: "USD", CheckedAt: time.Now().UTC()}
+	// Constructors used for bootstrap expose a slug until the default account is resolved.
+	if id == provider {
+		r.AccountID = ""
+	}
 	if err != nil {
 		r.State = "error"
 		r.Message = err.Error()
@@ -133,13 +139,13 @@ func (p ProxyRack) Enabled() bool { return p.apiKey != "" }
 func (p ProxyRack) Collect(ctx context.Context) Reading {
 	obj, e := p.request(ctx, "POST", "https://peer.proxyrack.com/api/balance", map[string]string{"Api-Key": p.apiKey, "Accept": "application/json"}, nil)
 	if e != nil {
-		return result(p.ID(), nil, e)
+		return result(p.ID(), "proxyrack", nil, e)
 	}
 	v, ok := value(obj, "data", "balance")
 	if !ok {
-		return result(p.ID(), nil, errors.New("field balance tidak ditemukan"))
+		return result(p.ID(), "proxyrack", nil, errors.New("field balance tidak ditemukan"))
 	}
-	return result(p.ID(), v, nil)
+	return result(p.ID(), "proxyrack", v, nil)
 }
 
 type TraffMonetizer struct {
@@ -155,13 +161,13 @@ func (t TraffMonetizer) Enabled() bool { return t.token != "" }
 func (t TraffMonetizer) Collect(ctx context.Context) Reading {
 	obj, e := t.request(ctx, "GET", "https://data.traffmonetizer.com/api/app_user/get_balance", map[string]string{"Authorization": "Bearer " + t.token, "Origin": "https://app.traffmonetizer.com", "Referer": "https://app.traffmonetizer.com/"}, nil)
 	if e != nil {
-		return result(t.ID(), nil, e)
+		return result(t.ID(), "traffmonetizer", nil, e)
 	}
 	v, ok := value(obj, "data", "balance")
 	if !ok {
-		return result(t.ID(), nil, errors.New("field balance tidak ditemukan"))
+		return result(t.ID(), "traffmonetizer", nil, errors.New("field balance tidak ditemukan"))
 	}
-	return result(t.ID(), v, nil)
+	return result(t.ID(), "traffmonetizer", v, nil)
 }
 
 type Repocket struct {
@@ -185,26 +191,26 @@ func (r Repocket) Collect(ctx context.Context) Reading {
 	b, _ := json.Marshal(payload)
 	obj, e := r.request(ctx, "POST", authURL, map[string]string{"Content-Type": "application/json"}, strings.NewReader(string(b)))
 	if e != nil {
-		return result(r.ID(), nil, e)
+		return result(r.ID(), "repocket", nil, e)
 	}
 	token, ok := value(obj, "idToken")
 	if !ok || token == "" {
-		return result(r.ID(), nil, errors.New("token Repocket tidak tersedia"))
+		return result(r.ID(), "repocket", nil, errors.New("token Repocket tidak tersedia"))
 	}
 	obj, e = r.request(ctx, "GET", "https://api.repocket.com/api/reports/current", map[string]string{"Auth-Token": fmt.Sprint(token)}, nil)
 	if e != nil {
-		return result(r.ID(), nil, e)
+		return result(r.ID(), "repocket", nil, e)
 	}
 	cents, ok := value(obj, "centsCredited")
 	if !ok {
-		return result(r.ID(), nil, errors.New("field centsCredited tidak ditemukan"))
+		return result(r.ID(), "repocket", nil, errors.New("field centsCredited tidak ditemukan"))
 	}
 	s, e := numberString(cents)
 	if e != nil {
-		return result(r.ID(), nil, e)
+		return result(r.ID(), "repocket", nil, e)
 	}
 	f, _ := strconv.ParseFloat(s, 64)
-	return result(r.ID(), strconv.FormatFloat(f/100, 'f', 4, 64), nil)
+	return result(r.ID(), "repocket", strconv.FormatFloat(f/100, 'f', 4, 64), nil)
 }
 func Default() []Collector { return []Collector{NewProxyRack(), NewTraffMonetizer(), NewRepocket()} }
 
